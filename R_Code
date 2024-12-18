@@ -1,0 +1,133 @@
+library(ISLR2)
+library(pls)
+attach(D)
+
+summary(D$testscr)
+mean(testscr)
+sd(testscr)
+max(testscr)
+min(testscr)
+median(testscr)
+mean(avginc)
+sd(avginc)
+median(avginc)
+min(avginc)
+max(avginc)
+max(comp_stu)
+min(comp_stu)
+mean(comp_stu)
+sd(comp_stu)
+median(comp_stu)
+mean(tsr)
+sd(tsr)
+median(tsr)
+max(tsr)
+min(tsr)
+
+
+x <- model.matrix(testscr ~ tsr + comp_stu + avginc, data = D)[,-1]
+
+#pc analysis and scree plot
+#no PCR needed
+pr.out <- prcomp(x,scale = TRUE)
+plot(pr.out$sdev^2/sum(pr.out$sdev^2),xlab = "Principal Component", ylab = "Proportion of Variance Explained")
+train <- sample(c(TRUE, FALSE), nrow(D),replace = TRUE) 
+valid <- -train 
+pcr.fit <- pcr(testscr~tsr + comp_stu + avginc 
+               ,data=D, subset=train , scale=TRUE , validation="CV") 
+validationplot(pcr.fit, val.type = "MSEP") 
+
+#regular OLS regression
+
+p.model.OLS <- lm(testscr ~ avginc + tsr + comp_stu, data = D)
+
+train <- sample(412,206)
+testmse1 <-  mean((testscr - predict(p.model.OLS, D))[-train]^2) 
+testmse1
+
+#OLS w poly
+
+p.model.OLS.poly <- lm(testscr ~ tsr + comp_stu + poly(avginc,3), data = D)
+testmse2 <-  mean((testscr - predict(p.model.OLS.poly, D))[-train]^2)
+testmse2
+
+#OLS w step
+# 7 for cut has the smallest test mse for range of [1,10]
+p.model.OLS.step <- lm(testscr ~ cut(avginc,7) + tsr + comp_stu, data = D)
+testmse3 <-  mean((testscr - predict(p.model.OLS.step, D))[-train]^2) 
+testmse3
+
+# lasso 
+library(glmnet)
+x <- model.matrix(testscr ~ tsr + comp_stu + avginc
+                  + I(avginc^2) + I(avginc^3), data = D)[,-1]
+y <- D$testscr
+train <- sample(1:nrow(x), nrow(x) / 2) 
+valid <- (-train) 
+y.valid <- y[valid]
+
+cv.lasso.out <- cv.glmnet(x[train, ], y[train], alpha = 1) 
+bestlam <- cv.lasso.out$lambda.min 
+bestlam
+p.model.lasso <- glmnet(x, y, alpha = 1,lambda = bestlam) 
+lasso.pred <- predict(p.model.lasso,newx = x[valid,])
+
+#the lasso pred test shows how to implement using new test data where the 
+# x_0 data frame was created down below
+
+testmse4 <- mean((lasso.pred - y.valid)^2)
+testmse4
+
+
+
+#regression tree 
+
+library(tree)
+attach(D)
+p.tree <- tree(testscr ~ avginc + comp_stu + tsr,subset = train)
+p.tree.prune <- prune.tree(p.tree, best = 4)
+plot(p.tree.prune)
+text(p.tree.prune)
+
+yhat.p.tree <- predict(p.tree.prune,newdata = D[valid,])
+tree.mse <- mean((yhat.p.tree - D$testscr[valid])^2)
+tree.mse
+
+cv.p.tree <- cv.tree(p.tree)
+plot(cv.p.tree$size, cv.p.tree$dev)
+
+#we can see that the best number of regions is 4 based on cv
+
+
+
+D$greater_median<- as.numeric(D$testscr >= median(D$testscr))
+x_0 = data.frame(tsr = c(0.0005,0.001,0.005,0.01,0.02),avginc = c(5,8,10,14,20),comp_stu = c(0.001,0.01,0.05,0.1,0.2))
+train.X <- cbind(D$tsr,D$avginc,D$comp_stu) 
+test.X <- cbind(x_0$tsr, x_0$avginc, x_0$comp_stu) 
+train.greater_median <- D$greater_median
+knn.pred1 <- knn.cv(train.X,train.greater_median, k = 1) 
+knn.pred2 <- knn.cv(train.X,train.greater_median, k = 2)
+knn.pred3 <- knn.cv(train.X,train.greater_median, k = 3)
+knn.pred4 <- knn.cv(train.X,train.greater_median, k = 4)
+
+summary(knn.pred1)
+summary(knn.pred2)
+summary(knn.pred3)
+summary(knn.pred4)
+
+s <- knn.cv(train = train.X, 
+       cl = train.greater_median, 
+       k = 4, prob = FALSE,                     
+       use.all = TRUE)
+
+summary(s)
+
+
+x_0 = data.frame(tsr = c(0.0005,0.001,0.005,0.01,0.02),avginc = c(5,8,10,14,20),comp_stu = c(0.001,0.01,0.05,0.1,0.2))
+predict(p.model.OLS.poly,x_0)
+
+
+boxplot(D$testscr,ylab = "testscr")
+
+plot(D$avginc,D$testscr,xlab = "Average Monthly Family Income",
+     ylab = "Average STAR test scores")
